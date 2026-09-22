@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.venv/
+
+# Tallenteet ja tuotetut clipit
+*.mp4
+*_clipit/
