@@ -1,31 +1,35 @@
 # slice-hybrid-mp4
 
-Pilkkoo OBS Studion Hybrid MP4 -tallenteen clipeiksi chapter-merkkien kohdalta.
-Chapter-merkin voi lisätä tallennuksen aikana pikanäppäimellä (OBS 30.2+).
+Splits an OBS Studio Hybrid MP4 recording into clips at its chapter markers.
+You can add a chapter marker with a hotkey while recording (OBS 30.2+).
 
-## Vaatimukset
+## Requirements
 
 - Python 3.8+
-- ffmpeg ja ffprobe. Jos ne puuttuvat, skripti tarjoutuu asentamaan ne
+- ffmpeg and ffprobe. If they are missing, the script offers to install them
   (Windows: winget/choco/scoop, macOS: brew/port, Linux: apt/dnf/pacman/zypper/apk).
 
-## Käyttö
+## Usage
+
+In OBS Studio, go to Settings → Output → Recording and set the recording format to "Hybrid MP4 (.mp4)". 
+
+Then while recording, press the hotkey you set for "Add Chapter Marker" to mark the start of each clip.
 
 ```sh
-python slice-hybrid-mp4.py tallenne.mp4              # clipit kansioon tallenne_clipit/
-python slice-hybrid-mp4.py tallenne.mp4 --dry-run    # näytä suunnitelma leikkaamatta
-python slice-hybrid-mp4.py tallenne.mp4 --reencode   # tarkat leikkauskohdat, hitaampi
+python slice-hybrid-mp4.py recording.mp4              # clips go to recording_clips/
+python slice-hybrid-mp4.py recording.mp4 --dry-run    # show the plan without cutting
+python slice-hybrid-mp4.py recording.mp4 --reencode   # exact cut points, slower
 ```
 
-Kaikki valitsimet: `python slice-hybrid-mp4.py --help`
+All options: `python slice-hybrid-mp4.py --help`
 
-Jokainen clippi alkaa edellisestä merkistä ja päättyy seuraavaan. Viimeisen merkin
-jälkeinen osa tallennetaan omaksi clipikseen (`--no-tail` jättää sen pois).
+Each clip runs from one marker to the next. The part after the last marker is
+saved as a clip of its own (`--no-tail` leaves it out).
 
-Oletuksena video kopioidaan uudelleenkoodaamatta, jolloin leikkaus on nopea mutta
-clippi alkaa edellisestä avainkehyksestä, eli se voi alkaa muutaman sekunnin etuajassa.
-`--reencode` leikkaa tarkasti.
+By default the video is copied without re-encoding, which makes cutting fast, but
+each clip starts at the previous keyframe, so it may start a few seconds early.
+`--reencode` cuts precisely. Reencoding is done with libx264; how reencoding works with other than 8-bit 4:2:0 video is not tested.
 
-## Lisenssi
+## License
 
 [MIT](LICENSE)

@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-Pilkkoo OBS Studion Hybrid MP4 -tallenteen chapter-merkkien kohdalta clipeiksi.
+Splits an OBS Studio Hybrid MP4 recording into clips at its chapter markers.
 
-Jokaisesta chapter-merkistä tehdään clippi, joka alkaa edellisestä merkistä
-(tai videon alusta, jos edellistä merkkiä ei ole) ja päättyy kyseiseen merkkiin.
-Viimeisen merkin jälkeinen häntä tallennetaan omaksi clipikseen, ellei annettu --no-tail.
+For each chapter marker, a clip is made that starts at the previous marker
+(or at the start of the video if there is no previous marker) and ends at that marker.
+The tail after the last marker is saved as a clip of its own, unless --no-tail is given.
 
-Vaatii: ffmpeg ja ffprobe PATHissa. Jos ne puuttuvat, skripti tarjoutuu asentamaan
-ne käyttöjärjestelmän paketinhallinnalla (winget/choco/scoop, brew/port, apt/dnf/pacman/...).
+Requires: ffmpeg and ffprobe in PATH. If they are missing, the script offers to install
+them with the OS package manager (winget/choco/scoop, brew/port, apt/dnf/pacman/...).
 
-Käyttö:
-    python slice-hybrid-mp4.py tallenne.mp4
-    python slice-hybrid-mp4.py tallenne.mp4 -o clipit/ --reencode
-    python slice-hybrid-mp4.py tallenne.mp4 --dry-run
+Usage:
+    python slice-hybrid-mp4.py recording.mp4
+    python slice-hybrid-mp4.py recording.mp4 -o clips/ --reencode
+    python slice-hybrid-mp4.py recording.mp4 --dry-run
 """
 
 import argparse
@@ -32,8 +32,8 @@ DOWNLOAD_URL = "https://ffmpeg.org/download.html"
 
 
 def install_commands():
-    """Palauttaa ffmpegin asennuskomennot (lista komentoja) tälle käyttöjärjestelmälle,
-    tai None, jos tuettua paketinhallintaa ei löydy."""
+    """Returns the ffmpeg install commands (a list of commands) for this operating system,
+    or None if no supported package manager is found."""
     if sys.platform == "win32":
         managers = [
             ("winget", [["winget", "install", "--id", "Gyan.FFmpeg", "-e"]]),
@@ -45,7 +45,7 @@ def install_commands():
             ("brew", [["brew", "install", "ffmpeg"]]),
             ("port", [["sudo", "port", "install", "ffmpeg"]]),
         ]
-    else:  # Linux ja muut Unixit
+    else:  # Linux and other Unixes
         sudo = ["sudo"] if os.geteuid() != 0 and shutil.which("sudo") else []
         managers = [
             ("apt-get", [sudo + ["apt-get", "update"], sudo + ["apt-get", "install", "ffmpeg"]]),
@@ -62,16 +62,16 @@ def install_commands():
 
 def manual_hint() -> str:
     if sys.platform == "win32":
-        return ("Asenna winget (App Installer, Microsoft Store) ja aja: winget install Gyan.FFmpeg\n"
-                "tai lataa https://www.gyan.dev/ffmpeg/builds/ ja lisää bin-kansio PATHiin.")
+        return ("Install winget (App Installer from the Microsoft Store) and run: winget install Gyan.FFmpeg\n"
+                "or download https://www.gyan.dev/ffmpeg/builds/ and add its bin folder to PATH.")
     if sys.platform == "darwin":
-        return "Asenna Homebrew (https://brew.sh) ja aja: brew install ffmpeg"
-    return f"Asenna ffmpeg-paketti jakelusi paketinhallinnalla tai katso {DOWNLOAD_URL}"
+        return "Install Homebrew (https://brew.sh) and run: brew install ffmpeg"
+    return f"Install the ffmpeg package with your distribution's package manager, or see {DOWNLOAD_URL}"
 
 
 def refresh_windows_path():
-    """Lukee PATHin rekisteristä, jotta juuri asennettu ffmpeg löytyy
-    ilman uuden terminaalin avaamista."""
+    """Reads PATH from the registry so that a freshly installed ffmpeg is found
+    without opening a new terminal."""
     import winreg
     keys = [
         (winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
@@ -88,7 +88,7 @@ def refresh_windows_path():
 
 
 def ensure_ffmpeg():
-    """Varmistaa, että ffmpeg ja ffprobe löytyvät ja käynnistyvät."""
+    """Makes sure that ffmpeg and ffprobe can be found and started."""
     missing = [t for t in TOOLS if shutil.which(t) is None]
     if missing:
         offer_install(missing)
@@ -98,61 +98,61 @@ def ensure_ffmpeg():
 
 
 def launch_error(tool: str):
-    """Kokeilee käynnistää työkalun. Palauttaa virheilmoituksen, tai None jos toimii."""
+    """Tries to start the tool. Returns an error message, or None if it works."""
     path = shutil.which(tool)
     try:
         subprocess.run([path, "-version"], capture_output=True, check=True)
         return None
     except (OSError, subprocess.CalledProcessError) as e:
-        msg = f"{path} löytyy, mutta sitä ei voi käynnistää: {e}"
+        msg = f"{path} was found but could not be started: {e}"
         if getattr(e, "winerror", None) == 1920:  # ERROR_CANT_ACCESS_FILE
-            msg += ("\nTiedosto on todennäköisesti pilvikansion (Dropbox, OneDrive) vain verkossa "
-                    "-tiedosto, jota ei saada ladattua. Käynnistä pilvisovellus ja merkitse "
-                    "tiedosto pysymään tällä laitteella, tai asenna ffmpeg pilvikansion ulkopuolelle.")
+            msg += ("\nThe file is probably an online-only file in a cloud folder (Dropbox, OneDrive) "
+                    "that could not be downloaded. Start the cloud app and set the file to always "
+                    "be kept on this device, or install ffmpeg outside the cloud folder.")
         return msg
 
 
 def offer_install(missing):
-    """Tarjoaa puuttuvan ffmpegin asennusta. Lopettaa ohjelman, jos asennus ei onnistu."""
-    print(f"{' ja '.join(missing)} ei löydy PATHista.", file=sys.stderr)
+    """Offers to install the missing ffmpeg. Exits the program if the installation fails."""
+    print(f"{' and '.join(missing)} not found in PATH.", file=sys.stderr)
 
     cmds = install_commands()
     if cmds is None:
         sys.exit(manual_hint())
     shown = " && ".join(" ".join(c) for c in cmds)
     if not sys.stdin.isatty():
-        sys.exit(f"Asenna ffmpeg komennolla:\n    {shown}")
+        sys.exit(f"Install ffmpeg with:\n    {shown}")
 
     try:
-        answer = input(f"Asennetaanko ffmpeg nyt komennolla\n    {shown}\n[k/E] ")
+        answer = input(f"Install ffmpeg now with this command?\n    {shown}\n[y/N] ")
     except (EOFError, KeyboardInterrupt):
         answer = ""
-    if answer.strip().lower() not in ("k", "kyllä", "kylla", "y", "yes"):
-        sys.exit(f"ffmpeg tarvitaan. Asenna se komennolla\n    {shown}\nja aja skripti uudelleen.")
+    if answer.strip().lower() not in ("y", "yes"):
+        sys.exit(f"ffmpeg is required. Install it with\n    {shown}\nand run the script again.")
 
     for cmd in cmds:
-        # shutil.which löytää myös .cmd/.ps1-shimit (esim. scoop), joita pelkkä nimi ei löydä
+        # shutil.which also finds .cmd/.ps1 shims (e.g. scoop) that the bare name would miss
         exe = shutil.which(cmd[0]) or cmd[0]
         if subprocess.run([exe, *cmd[1:]]).returncode != 0:
-            sys.exit(f"Asennus epäonnistui. Asenna ffmpeg käsin: {DOWNLOAD_URL}")
+            sys.exit(f"Installation failed. Install ffmpeg manually: {DOWNLOAD_URL}")
 
     if sys.platform == "win32":
         refresh_windows_path()
     if any(shutil.which(t) is None for t in TOOLS):
-        sys.exit("Asennus valmis, mutta ffmpeg ei vielä näy PATHissa. "
-                 "Avaa uusi terminaali ja aja skripti uudelleen.")
-    print("ffmpeg asennettu.\n")
+        sys.exit("Installation finished, but ffmpeg is not in PATH yet. "
+                 "Open a new terminal and run the script again.")
+    print("ffmpeg installed.\n")
 
 
 def probe(path: Path):
-    """Palauttaa (chapter-merkit [(aika_s, otsikko)], kesto_s)."""
+    """Returns (chapter markers [(time_s, title)], duration_s)."""
     cmd = [
         "ffprobe", "-v", "error", "-print_format", "json",
         "-show_chapters", "-show_format", str(path),
     ]
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0:
-        sys.exit(f"ffprobe epäonnistui:\n{res.stderr}")
+        sys.exit(f"ffprobe failed:\n{res.stderr}")
     data = json.loads(res.stdout)
     duration = float(data["format"]["duration"])
 
@@ -163,7 +163,7 @@ def probe(path: Path):
         marks.append((t, title))
     marks.sort(key=lambda m: m[0])
 
-    # Poista merkki videon alusta ja mahdolliset duplikaatit
+    # Drop a marker at the very start of the video, and any duplicates
     cleaned = []
     for t, title in marks:
         if t < 0.05:
@@ -175,15 +175,15 @@ def probe(path: Path):
 
 
 def build_segments(marks, duration, include_tail: bool, name_by: str):
-    """Muodostaa listan (alku, loppu, nimi)."""
+    """Builds a list of (start, end, name)."""
     segments = []
-    prev_t, prev_title = 0.0, "alku"
+    prev_t, prev_title = 0.0, "start"
     for t, title in marks:
-        name = title if name_by == "loppu" else prev_title
+        name = title if name_by == "end" else prev_title
         segments.append((prev_t, t, name))
         prev_t, prev_title = t, title
     if include_tail and duration - prev_t > 0.05:
-        name = "loppu" if name_by == "loppu" else prev_title
+        name = "end" if name_by == "end" else prev_title
         segments.append((prev_t, duration, name))
     return segments
 
@@ -206,13 +206,17 @@ def fmt_short(seconds: float) -> str:
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
+def plural(n: int, noun: str) -> str:
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
 class Progress:
-    """Piirtää clipin ja koko ajon edistymisen yhdelle, paikallaan päivittyvälle riville.
-    Jos tuloste ei ole terminaali (esim. ohjattu tiedostoon), palkkia ei piirretä."""
+    """Draws the progress of the clip and the whole run on one line that updates in place.
+    If the output is not a terminal (e.g. redirected to a file), no bar is drawn."""
 
     def __init__(self, total: float):
-        self.total = total      # kaikkien clippien yhteiskesto (s)
-        self.finished = 0.0     # valmiiden clippien yhteiskesto (s)
+        self.total = total      # combined duration of all clips (s)
+        self.finished = 0.0     # combined duration of finished clips (s)
         self.started = time.monotonic()
         self.enabled = sys.stdout.isatty()
         utf = "utf" in (sys.stdout.encoding or "").lower()
@@ -235,18 +239,18 @@ class Progress:
         if pos > 0:
             speed = pos / (now - self.clip_started)
             eta = (self.total - done) * (now - self.started) / done
-            text += f"  {speed:.1f}x  kaikki {done / self.total:.0%}, ~{fmt_short(eta)} jäljellä"
+            text += f"  {speed:.1f}x  overall {done / self.total:.0%}, ~{fmt_short(eta)} left"
         bar_w = 20
         filled = round(bar_w * pos / self.length)
         self.frame += 1
         spin = self.spinner[self.frame % len(self.spinner)]
         line = f"  {spin} {self.full * filled}{self.empty * (bar_w - filled)} {text}"
-        # Rivi ei saa rivittyä, muuten \r palaa vain viimeisen rivin alkuun
+        # The line must not wrap, otherwise \r only returns to the start of its last row
         self._write(line[:shutil.get_terminal_size().columns - 1])
 
     def end(self, ok: bool):
         self.finished += self.length
-        line = f"  {'valmis' if ok else 'VIRHE'} ({fmt_short(time.monotonic() - self.clip_started)})"
+        line = f"  {'done' if ok else 'ERROR'} ({fmt_short(time.monotonic() - self.clip_started)})"
         if self.enabled:
             self._write(line)
             line = ""
@@ -254,15 +258,16 @@ class Progress:
         self.width = 0
 
     def _write(self, line: str):
-        # Täytetään välilyönneillä, jotta edellisen, pidemmän rivin loppu pyyhkiytyy
+        # Pad with spaces so that the end of a previous, longer line gets erased
         sys.stdout.write("\r" + line.ljust(self.width))
         sys.stdout.flush()
         self.width = len(line)
 
 
 def cut(src: Path, dst: Path, start: float, end: float, reencode: bool, progress: Progress):
-    # Vain video ja ääni: OBS:n Hybrid MP4:n chapter-dataraita ei leikkaudu ajassa oikein
-    # stream copyssa, vaan venyttää clipin keston ja siirtää videon alun keskelle aikajanaa.
+    # Video and audio only: with stream copy, the chapter data track of an OBS Hybrid MP4
+    # isn't cut at the right times; instead it stretches the clip's duration and moves the
+    # start of the video to the middle of the timeline.
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostats", "-y",
            "-progress", "pipe:1",
            "-ss", f"{start:.3f}", "-to", f"{end:.3f}", "-i", str(src),
@@ -274,7 +279,7 @@ def cut(src: Path, dst: Path, start: float, end: float, reencode: bool, progress
         cmd += ["-c", "copy", "-avoid_negative_ts", "make_zero"]
     cmd += ["-movflags", "+faststart", str(dst)]
 
-    pos = [0.0]  # käsitelty kohta clipissä sekunteina, päivittyy lukijasäikeestä
+    pos = [0.0]  # position reached in the clip in seconds, updated by the reader thread
 
     def read_progress(stream):
         for line in stream:
@@ -283,7 +288,7 @@ def cut(src: Path, dst: Path, start: float, end: float, reencode: bool, progress
                 pos[0] = int(value) / 1_000_000
 
     progress.begin(end - start)
-    # stderr tiedostoon, jotta täysi putki ei jumita ffmpegiä sillä aikaa kun luetaan stdoutia
+    # stderr goes to a file so that a full pipe can't stall ffmpeg while stdout is being read
     with tempfile.TemporaryFile() as err:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, text=True)
         reader = threading.Thread(target=read_progress, args=(proc.stdout,), daemon=True)
@@ -297,49 +302,50 @@ def cut(src: Path, dst: Path, start: float, end: float, reencode: bool, progress
             proc.wait()
             dst.unlink(missing_ok=True)
             print()
-            sys.exit("Keskeytetty.")
+            sys.exit("Interrupted.")
         reader.join()
         ok = proc.returncode == 0
         progress.end(ok)
         if not ok:
             err.seek(0)
-            print(f"  VIRHE: {dst.name}\n{err.read().decode(errors='replace')}", file=sys.stderr)
+            print(f"  ERROR: {dst.name}\n{err.read().decode(errors='replace')}", file=sys.stderr)
     return ok
 
 
 def main():
     ap = argparse.ArgumentParser(
-        description="Pilkkoo OBS Hybrid MP4 -tallenteen chapter-merkkien kohdalta clipeiksi.")
-    ap.add_argument("input", type=Path, help="OBS:n tuottama .mp4")
+        description="Splits an OBS Hybrid MP4 recording into clips at its chapter markers.")
+    ap.add_argument("input", type=Path, help="the .mp4 file recorded by OBS")
     ap.add_argument("-o", "--outdir", type=Path, default=None,
-                    help="Kohdekansio (oletus: <tiedostonimi>_clipit lähdetiedoston vieressä)")
+                    help="output folder (default: <name>_clips next to the input file)")
     ap.add_argument("--reencode", action="store_true",
-                    help="Uudelleenkoodaa video (framen tarkat leikkaukset, hitaampi). "
-                         "Oletus on stream copy, jolloin leikkaus osuu lähimpään keyframeen.")
+                    help="re-encode the video for frame-accurate cuts (slower); by default "
+                         "the video is stream-copied, so cuts snap to the previous keyframe")
     ap.add_argument("--no-tail", action="store_true",
-                    help="Älä tee clippiä viimeisen merkin jälkeisestä osuudesta")
-    ap.add_argument("--name-by", choices=["loppu", "alku"], default="loppu",
-                    help="Nimetäänkö clippi sen merkin mukaan, johon se päättyy (loppu, oletus) "
-                         "vai josta se alkaa (alku)")
+                    help="don't make a clip of the part after the last marker")
+    ap.add_argument("--name-by", choices=["end", "start"], default="end",
+                    help="name each clip after the marker where it ends (end, the default) "
+                         "or where it starts (start)")
     ap.add_argument("--dry-run", action="store_true",
-                    help="Näytä vain, mitä tehtäisiin")
+                    help="only show what would be done")
     args = ap.parse_args()
 
     ensure_ffmpeg()
 
     src: Path = args.input
     if not src.is_file():
-        sys.exit(f"Tiedostoa ei löydy: {src}")
+        sys.exit(f"File not found: {src}")
 
     marks, duration = probe(src)
     if not marks:
-        sys.exit("Tiedostosta ei löytynyt chapter-merkkejä (ffprobe -show_chapters palautti tyhjän).")
+        sys.exit("No chapter markers found in the file (ffprobe -show_chapters returned none).")
 
     segments = build_segments(marks, duration, not args.no_tail, args.name_by)
-    outdir = args.outdir or src.with_name(f"{src.stem}_clipit")
+    outdir = args.outdir or src.with_name(f"{src.stem}_clips")
 
-    print(f"{src.name}: kesto {fmt_time(duration)}, {len(marks)} chapter-merkkiä -> {len(segments)} clippiä")
-    print(f"Kohde: {outdir}\n")
+    print(f"{src.name}: duration {fmt_time(duration)}, "
+          f"{plural(len(marks), 'chapter marker')} -> {plural(len(segments), 'clip')}")
+    print(f"Output folder: {outdir}\n")
 
     width = len(str(len(segments)))
     plan = []
@@ -360,7 +366,7 @@ def main():
         if cut(src, dst, start, end, args.reencode, progress):
             ok += 1
     took = fmt_short(time.monotonic() - progress.started)
-    print(f"\nValmis: {ok}/{len(plan)} clippiä kansiossa {outdir} ({took})")
+    print(f"\nDone: {ok}/{plural(len(plan), 'clip')} in {outdir} ({took})")
     if ok != len(plan):
         sys.exit(1)
 
